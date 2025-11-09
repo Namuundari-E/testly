@@ -10,6 +10,9 @@ import cv2
 import numpy as np
 import os
 
+#import ur omr detection
+from omr_detection import OMRDetector
+ 
 app = FastAPI(title="Document OCR Service")
 
 #Cors middleware for frontend access
@@ -24,8 +27,9 @@ app.add_middleware(
 #Global model variable
 ocr_processor = None
 ocr_model = None
+omr_detector = None
 
-class Answer(Basemodel):
+class Answer(BaseModel):
     question_id: str
     type: str
     correct_answer: str
@@ -42,13 +46,18 @@ class TestResult(BaseModel):
     
 @app.on_event("startup")
 async def load_models():
-    global ocr_processor, ocr_model
-    ocr_processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
-    ocr_model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten")
+    global ocr_processor, ocr_model, omr_detector
+    ocr_processor = TrOCRProcessor.from_pretrained("kazars24/trocr-base-handwritten-ru")
+    ocr_model = VisionEncoderDecoderModel.from_pretrained("kazars24/trocr-base-handwritten-ru")
     
     ocr_model.to("cuda" if torch.cuda.is_available() else "cpu")
     
     ocr_model.eval()
+    
+    #omr
+    print("Loading OMR Detector...")
+    omr_detector = OMRDetector(bubble_threshold=0.45, min_bubble_area=500)
+    print("OMR Detector loaded.")
 
 @app.get("/")
 async def root():
@@ -58,8 +67,9 @@ async def root():
 async def health_check():
     return {"status": "healthy",
             "gpu_availbale": torch.cuda.is_available(),
-            "model_loaded": ocr_model is not None}
-    
+            "model_loaded": ocr_model is not None,
+            "omr_model_loaded": omr_detector is not None}
+        
 def perform_ocr(image: Image.Image) -> str:
     """Perform OCR on the single given image and return the extracted text."""
     if ocr_processor is None or ocr_model is None:
@@ -75,7 +85,7 @@ def perform_ocr(image: Image.Image) -> str:
     generated_text = ocr_processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
     return generated_text
 
-def detect_mor_bubbles(image: np.ndarray, config: Dict) -> List[Dict]:
+def detect_omr_bubbles(image: np.ndarray, config: Dict) -> List[Dict]:
     """Detect OMR bubbles in the image based on the provided configuration."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -93,7 +103,7 @@ def extract_answer_regions(image: Image.Image, question_config: List[Dict]) -> L
     """Extract answer regions from the image based on the provided configuration."""
     regions = []
     
-    for config in question_configs:
+    for config in question_config:
         if 'bbox' in config:  # bounding box [x, y, width, height]
             bbox = config['bbox']
             region = image.crop((bbox[0], bbox[1], bbox[0]+bbox[2], bbox[1]+bbox[3]))
@@ -121,7 +131,8 @@ async def check_test(
 ):
     """Main endpoint to check papers"""
     import json
-    config = Testconfig(**json.loads(test_config))
+    #Parse test configuration
+    config = TestConfig(**json.loads(test_config))
     #Read uploaded image
     image_bytes = await test_image.read()
     image = Image.open(io.BytesIO(image_bytes))
@@ -133,50 +144,138 @@ async def check_test(
     total_score = 0.0
     max_score = sum(answer.points for answer in config.answers)
     
-    for answer_config in config.answers:
+     # Separate MCQ and written questions
+    mcq_questions = [a for a in config.answers if a.type == "mcq"]
+    written_questions = [a for a in config.answers if a.type == "written"]
+    
+    # Process MCQ questions with OMR
+    if mcq_questions and omr_detector:
+        try:
+            # Detect OMR answers
+            omr_config = config.omr_config or {}
+            num_questions = len(mcq_questions)
+            options_per_question = omr_config.get('options_per_question', 4)
+            
+            omr_results = omr_detector.detect_grid_answers(
+                image_np,
+                num_questions=num_questions,
+                options_per_question=options_per_question,
+                grid_config=omr_config.get('grid_region')
+            )
+            
+            # Check MCQ answers
+            for answer_config in mcq_questions:
+                question_result = {
+                    "question_id": answer_config.question_id,
+                    "type": "mcq",
+                    "student_answer": omr_results.get(answer_config.question_id, "BLANK"),
+                    "correct_answer": answer_config.correct_answer,
+                    "score": 0.0,
+                    "max_points": answer_config.points
+                }
+                
+                student_answer = omr_results.get(answer_config.question_id, "")
+                
+                # Check if correct
+                if student_answer == answer_config.correct_answer:
+                    question_result["score"] = answer_config.points
+                elif student_answer == "MULTIPLE":
+                    question_result["error"] = "Multiple answers marked"
+                elif student_answer == "BLANK":
+                    question_result["error"] = "No answer marked"
+                
+                total_score += question_result["score"]
+                results.append(question_result)
+                
+        except Exception as e:
+            print(f"OMR detection error: {e}")
+            # Fall back to placeholder for MCQ
+            for answer_config in mcq_questions:
+                question_result = {
+                    "question_id": answer_config.question_id,
+                    "type": "mcq",
+                    "student_answer": "ERROR",
+                    "correct_answer": answer_config.correct_answer,
+                    "score": 0.0,
+                    "max_points": answer_config.points,
+                    "error": str(e)
+                }
+                results.append(question_result)
+    
+    # Process written questions with OCR
+    for answer_config in written_questions:
         question_result = {
             "question_id": answer_config.question_id,
-            "type": answer_config.type,
+            "type": "written",
+            "student_answer": "",
             "correct_answer": answer_config.correct_answer,
-            "max_points": answer_config.points,
             "score": 0.0,
-            "student_answer": ""
+            "max_points": answer_config.points
         }
         
-        if answer_config.type == "written":
-            #Extract region
-            region = extract_answer_regions(image, [answer_config])[0]
-            student_answer = perform_ocr(region)
-            question_result["student_answer"] = student_answer
+        try:
+            # For now, OCR the entire image (you can add region extraction)
+            recognized_text = perform_ocr(image)
+            question_result["student_answer"] = recognized_text
             
-            #Compare with correct answer
-            score_ratio = compare_answers_with_llms(student_answer, answer_config.correct_answer)
-            question_result["score"] = score_ratio * answer_config.points
-            question_result["similarity"] = score_ratio
+            # Use LLM to compare answers
+            similarity = compare_answers_with_llms(recognized_text, answer_config.correct_answer)
+            question_result["score"] = similarity * answer_config.points
+            question_result["similarity"] = similarity
             
-        elif answer_config.type == "omr":
-            #Detect OMR bubbles
-            omr_results = detect_mor_bubbles(image_np, config.omr_config or {})
-            student_answer = omr_results.get(answer_config.question_id, "")
-            question_result["student_answer"] = student_answer
-            
-            #Simple exact match for OMR
-            if student_answer == answer_config.correct_answer:
-                question_result["score"] = answer_config.points
-            else:
-                question_result["score"] = 0.0
-                
+        except Exception as e:
+            print(f"OCR error for question {answer_config.question_id}: {e}")
+            question_result["error"] = str(e)
+        
         total_score += question_result["score"]
         results.append(question_result)
-    return TestResult(total_score=total_score, max_score=max_score, details=results)
-
+    
+    return TestResult(
+        total_score=total_score,
+        max_score=max_score,
+        details=results
+    )
+    
 @app.post("/ocr_test")
-async def test_ocr(image: UploadFile - File(...)):
+async def test_ocr(image: UploadFile = File(...)):
     """Endpoint to test OCR on a single image."""
     image_bytes = await image.read()
     pil_image = Image.open(io.BytesIO(image_bytes))
     extracted_text = perform_ocr(pil_image)
     return {"extracted_text": extracted_text}
+
+
+@app.post("/omr-test")
+async def test_omr(
+    image: UploadFile = File(...),
+    num_questions: int = 5,
+    options_per_question: int = 4
+):
+    """Test endpoint for OMR functionality"""
+    if omr_detector is None:
+        raise HTTPException(status_code=500, detail="OMR detector not loaded")
+    
+    image_bytes = await image.read()
+    image = Image.open(io.BytesIO(image_bytes))
+    image_np = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    
+    # Detect bubbles
+    bubbles = omr_detector.detect_bubbles(image_np)
+    
+    # Detect grid answers
+    answers = omr_detector.detect_grid_answers(
+        image_np,
+        num_questions=num_questions,
+        options_per_question=options_per_question
+    )
+    
+    return {
+        "total_bubbles_detected": len(bubbles),
+        "marked_bubbles": len([b for b in bubbles if b['is_marked']]),
+        "answers": answers,
+        "bubbles": bubbles[:10]  # First 10 bubbles for debugging
+    }
+    
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
