@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, CheckCircle, XCircle, Loader2, FileText, Camera, LogOut, Users, BookOpen, Plus, Eye } from 'lucide-react';
+import { FileSearchCorner, Camera, LogOut, Users, BookOpen, Plus, Eye } from 'lucide-react';
 import { auth } from './firebase';
 import { 
   createUserWithEmailAndPassword, 
@@ -215,9 +215,9 @@ const signUp = async (email, password) => {
       <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full">
           <div className="text-center mb-8">
-            <FileText className="w-16 h-16 mx-auto text-indigo-600 mb-4" />
-            <h1 className="text-3xl font-bold text-gray-800">Test Checker</h1>
-            <p className="text-gray-600">AI-powered exam grading system</p>
+            <FileSearchCorner className="w-16 h-16 mx-auto text-indigo-600 mb-4" />
+            <h1 className="text-3xl font-bold text-gray-800">Testly</h1>
+            <p className="text-gray-600">Хиймэл оюунд суурилсан шалгалтын дүн тодорхойлох систем</p>
           </div>
 
           <div className="space-y-4">
@@ -233,7 +233,7 @@ const signUp = async (email, password) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Нууц үг</label>
               <input
                 type="password"
                 value={password}
@@ -244,7 +244,7 @@ const signUp = async (email, password) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">I am a:</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Би:</label>
               <div className="flex gap-4">
                 <button
                   onClick={() => setRole('student')}
@@ -254,7 +254,7 @@ const signUp = async (email, password) => {
                       : 'border-gray-300'
                   }`}
                 >
-                  Student
+                  Сурагч
                 </button>
                 <button
                   onClick={() => setRole('teacher')}
@@ -264,7 +264,7 @@ const signUp = async (email, password) => {
                       : 'border-gray-300'
                   }`}
                 >
-                  Teacher
+                  Багш
                 </button>
               </div>
             </div>
