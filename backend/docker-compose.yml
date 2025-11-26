@@ -6,6 +6,6 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./app
+      - ./:/app #bind mount for code changes
     environment:
       - PYTHONUNBUFFERED=1

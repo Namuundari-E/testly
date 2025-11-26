@@ -27,6 +27,7 @@ def get_db():
 # Verify Firebase token
 async def verify_token(authorization: str = Header(None)) -> dict:
     """Verify Firebase ID token from Authorization header"""
+    get_db()
     if not authorization:
         raise HTTPException(status_code=401, detail="No authorization header")
     

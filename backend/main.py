@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List,Dict,Optional
@@ -9,12 +9,15 @@ import io
 import cv2
 import numpy as np
 import os
+import random
+import string
+from datetime import datetime
 
 #import ur omr detection
 from auth import get_current_user, require_teacher, require_student, get_db, initialize_firebase
-from omr_detection import OMRDetector
+from backend.utils.omr_detection import OMRDetector
 from check_test import process_omr, process_ocr, compare_answers_with_llms , check_test
-from check_test import TestResult
+from check_test import TestResult, ExamCreate, ExamUpdate
 
 app = FastAPI(title="Document OCR Service")
 
@@ -59,32 +62,6 @@ async def health_check():
             "omr_model_loaded": omr_detector is not None}
         
 
-
-def detect_omr_bubbles(image: np.ndarray, config: Dict) -> List[Dict]:
-    """Detect OMR bubbles in the image based on the provided configuration."""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-    
-    # Find contours (bubbles)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # This is a simplified example
-    # In production, you'd need precise bubble detection based on your template
-    results = {}
-    return results
-
-def extract_answer_regions(image: Image.Image, question_config: List[Dict]) -> List[Image.Image]:
-    """Extract answer regions from the image based on the provided configuration."""
-    regions = []
-    
-    for config in question_config:
-        if 'bbox' in config:  # bounding box [x, y, width, height]
-            bbox = config['bbox']
-            region = image.crop((bbox[0], bbox[1], bbox[0]+bbox[2], bbox[1]+bbox[3]))
-            regions.append(region)
-    return regions
-
 @app.post("/check_test", response_model=TestResult)
 async def check_test(
     test_image: UploadFile = File(...),
@@ -110,8 +87,6 @@ async def test_omr(
         options_per_question
     )
     return {"result:": result}
-    
-    # ==================== TEACHER ENDPOINTS ====================
 
 @app.post("/api/exams/create")
 async def create_exam(exam: ExamCreate, user: dict = Depends(require_teacher)):
@@ -165,17 +140,23 @@ async def get_exam(exam_id: str, user: dict = Depends(require_teacher)):
     """Get exam details"""
     db = get_db()
     
-    exam_doc = db.collection('exams').document(exam_id).get()
-    
-    if not exam_doc.exists:
+    query = db.collection('exams').where('exam_code', '==', exam_id).limit(1).stream()
+
+    exam_doc = None
+    for d in query:
+        exam_doc = d
+
+    if exam_doc is None:
         raise HTTPException(status_code=404, detail="Exam not found")
-    
+
     exam_data = exam_doc.to_dict()
-    
+
     # Check if user owns this exam
-    if exam_data['teacher_id'] != user['uid']:
+    role = user.get("role")
+    # Teacher: allow only your own exams
+    if role == "teacher" and exam_data["teacher_id"] != user["uid"]:
         raise HTTPException(status_code=403, detail="Not authorized")
-    
+  
     exam_data['exam_id'] = exam_id
     return exam_data
 

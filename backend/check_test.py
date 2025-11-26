@@ -7,7 +7,7 @@ import io
 import cv2
 import numpy as np
 
-from omr_detection import OMRDetector
+from backend.utils.omr_detection import OMRDetector
 
 class TestResult(BaseModel):
     total_score: float
@@ -21,7 +21,26 @@ class Answer(BaseModel):
 class TestConfig(BaseModel):
     answers: List[Answer]
     omr_config:Optional[Dict]=None
-    
+class QuestionModel(BaseModel):
+    question_id: str
+    question_text: str
+    type: str
+    options: Optional[List[str]]
+    correct_answer: str
+    points: float
+class ExamCreate(BaseModel):
+    title: str
+    description: Optional[str]
+    duration_minutes: int
+    questions: List[QuestionModel]
+    omr_config: Optional[dict] = None
+class ExamUpdate(BaseModel):  
+    title: Optional[str] = None
+    description: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    questions: Optional[List[Dict]] = None
+    is_active: Optional[bool] = None
+    omr_config: Optional[Dict] = None
 ocr_processor = None
 ocr_model = None
 omr_detector = None
