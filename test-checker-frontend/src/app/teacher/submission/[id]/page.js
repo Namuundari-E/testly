@@ -15,52 +15,71 @@ export default function SubmissionReviewPage() {
   const [loading, setLoading] = useState(true);
   const [grading, setGrading] = useState(false);
   const [manualScores, setManualScores] = useState({});
+  const [submissionImage, setSubmissionImage] = useState(null);
+
 
   useEffect(() => {
     loadSubmission();
   }, []);
 
   const loadSubmission = async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user) throw new Error('Not authenticated');
-      
-      const token = await user.getIdToken();
+  try {
+    const user = auth.currentUser;
+    if (!user) throw new Error('Not authenticated');
 
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/submissions/${submissionId}`,
-        {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }
-      );
-      const data = await response.json();
-      setSubmission(data);
+    const token = await user.getIdToken();
 
-      // Load exam details
-      const examResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/exams/${data.exam_id}`,
-        {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }
-      );
-      const examData = await examResponse.json();
-      setExam(examData);
-
-      // Initialize manual scores if already graded
-      if (data.results) {
-        const scores = {};
-        data.results.forEach(r => {
-          scores[r.question_id] = r.score;
-        });
-        setManualScores(scores);
+    // --- Load submission metadata ---
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/submissions/${submissionId}`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
       }
-    } catch (error) {
-      alert('Error loading submission: ' + error.message);
-      router.back();
-    } finally {
-      setLoading(false);
+    );
+    const data = await response.json();
+    setSubmission(data);
+
+    // --- Load exam metadata ---
+    const examResponse = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/exams/${data.exam_code}`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    );
+    const examData = await examResponse.json();
+    setExam(examData);
+
+    // --- Load submission image as blob ---
+    const imgResponse = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/submissions/${submissionId}/image`,
+      {
+        headers: { Authorization: `Bearer ${token}` }
+      }
+    );
+
+    if (!imgResponse.ok) throw new Error('Failed to load submission image');
+
+    const imgBlob = await imgResponse.blob();
+    const imgUrl = URL.createObjectURL(imgBlob);
+    setSubmissionImage(imgUrl); // <-- you need a state for this
+
+    // --- Initialize manual scores if already graded ---
+    if (data.results) {
+      const scores = {};
+      data.results.forEach(r => {
+        scores[r.question_id] = r.score;
+      });
+      setManualScores(scores);
     }
-  };
+
+      } catch (error) {
+        alert('Error loading submission: ' + error.message);
+        router.back();
+      } finally {
+        setLoading(false);
+      }
+    };
+
 
   const handleAutoGrade = async () => {
     if (!confirm('Auto-grade this submission with OCR/OMR?')) return;
@@ -162,7 +181,7 @@ export default function SubmissionReviewPage() {
             <div>
               <h1 className="text-3xl font-bold text-gray-800">{exam?.title}</h1>
               <p className="text-lg text-gray-600 mt-2">
-                Student: {submission.student_name || submission.student_email}
+                Student: { submission.student_email}
               </p>
               <p className="text-sm text-gray-500">
                 Submitted: {new Date(submission.submitted_at).toLocaleString()}
@@ -214,11 +233,8 @@ export default function SubmissionReviewPage() {
               <ImageIcon className="w-6 h-6" />
               Answer Sheet
             </h2>
-            <img
-              src={submission.image_url}
-              alt="Student answer sheet"
-              className="w-full rounded-lg border-2 border-gray-200"
-            />
+            <img src={submissionImage} alt="Answer sheet" style={{ maxWidth: '100%' }} />
+
           </div>
 
           {/* Manual Grading Interface */}

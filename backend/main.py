@@ -1,24 +1,25 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List,Dict,Optional
 import torch
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from PIL import Image
-import io
-import cv2
+from fastapi.responses import JSONResponse
+from utils.paper_detection import process_submission_image
+from routes import submission_routes
 import numpy as np
 import os
 import random
 import string
 from datetime import datetime
+import uuid
 
 #import ur omr detection
 from auth import get_current_user, require_teacher, require_student, get_db, initialize_firebase
-from backend.utils.omr_detection import OMRDetector
+from utils.omr_detection import OMRDetector
 from check_test import process_omr, process_ocr, compare_answers_with_llms , check_test
 from check_test import TestResult, ExamCreate, ExamUpdate
-
+from routes import submission_routes
 app = FastAPI(title="Document OCR Service")
 
 #Cors middleware for frontend access
@@ -47,9 +48,13 @@ async def load_models():
     
     #omr
     print("Loading OMR Detector...")
-    omr_detector = OMRDetector(bubble_threshold=0.45, min_bubble_area=500)
+    omr_detector = OMRDetector(bubble_threshold=0.70, min_bubble_area=30)
     print("OMR Detector loaded.")
-
+    import check_test
+    check_test.ocr_processor = ocr_processor
+    check_test.ocr_model = ocr_model
+    check_test.omr_detector = omr_detector 
+    
 @app.get("/")
 async def root():
     return {"message": "Document OCR Service is running.", "status": "running"}
@@ -59,8 +64,7 @@ async def health_check():
     return {"status": "healthy",
             "gpu_availbale": torch.cuda.is_available(),
             "model_loaded": ocr_model is not None,
-            "omr_model_loaded": omr_detector is not None}
-        
+            "omr_model_loaded": omr_detector is not None}    
 
 @app.post("/check_test", response_model=TestResult)
 async def check_test(
@@ -186,31 +190,38 @@ async def update_exam(exam_id: str, exam: ExamUpdate, user: dict = Depends(requi
     
     return {"message": "Exam updated successfully"}
 
-@app.get("/api/exams/{exam_id}/submissions")
-async def get_exam_submissions(exam_id: str, user: dict = Depends(require_teacher)):
+@app.get("/api/exams/{exam_code}/submissions")
+async def get_exam_submissions(exam_code: str, user: dict = Depends(require_teacher)):
     """Get all submissions for an exam"""
     db = get_db()
     
-    # Verify exam ownership
-    exam_doc = db.collection('exams').document(exam_id).get()
-    if not exam_doc.exists:
+    # Find exam by exam_code
+    exams = db.collection('exams').where('exam_code', '==', exam_code).limit(1).stream()
+    exam_doc = None
+    for e in exams:
+        exam_doc = e
+        break
+    
+    if not exam_doc:
         raise HTTPException(status_code=404, detail="Exam not found")
     
     exam_data = exam_doc.to_dict()
     if exam_data['teacher_id'] != user['uid']:
         raise HTTPException(status_code=403, detail="Not authorized")
     
-    # Get submissions
-    submissions = db.collection('submissions').where('exam_id', '==', exam_id).stream()
+    # Get submissions by exam_code
+    submissions = db.collection('submissions')\
+        .where('exam_code', '==', exam_code)\
+        .stream()
     
     submission_list = []
     for sub in submissions:
         sub_data = sub.to_dict()
-        sub_data['submission_id'] = sub.id
+        sub_data['id'] = sub.id
         submission_list.append(sub_data)
     
-    return {"submissions": submission_list}
-
+    print(f"Found {len(submission_list)} submissions for exam {exam_code}")  # Debug
+    return submission_list  # Return array directly
 # ==================== STUDENT ENDPOINTS ====================
 
 @app.post("/api/exams/join")
@@ -253,94 +264,94 @@ async def join_exam(exam_code: str, user: dict = Depends(require_student)):
         ]
     }
 
-@app.post("/api/exams/submit")
-async def submit_exam(
-    exam_id: str,
-    test_image: UploadFile = File(...),
-    user: dict = Depends(require_student)
-):
-    """Student submits exam paper"""
-    db = get_db()
+# @app.post("/api/exams/submit")
+# async def submit_exam(
+#     exam_id: str,
+#     test_image: UploadFile = File(...),
+#     user: dict = Depends(require_student)
+# ):
+#     """Student submits exam paper"""
+#     db = get_db()
     
-    # Get exam
-    exam_doc = db.collection('exams').document(exam_id).get()
-    if not exam_doc.exists:
-        raise HTTPException(status_code=404, detail="Exam not found")
+#     # Get exam
+#     exam_doc = db.collection('exams').document(exam_id).get()
+#     if not exam_doc.exists:
+#         raise HTTPException(status_code=404, detail="Exam not found")
     
-    exam_data = exam_doc.to_dict()
+#     exam_data = exam_doc.to_dict()
     
-    # Check if already submitted
-    existing = db.collection('submissions')\
-        .where('exam_id', '==', exam_id)\
-        .where('student_id', '==', user['uid'])\
-        .limit(1).stream()
+#     # Check if already submitted
+#     existing = db.collection('submissions')\
+#         .where('exam_id', '==', exam_id)\
+#         .where('student_id', '==', user['uid'])\
+#         .limit(1).stream()
     
-    if any(existing):
-        raise HTTPException(status_code=400, detail="Already submitted this exam")
+#     if any(existing):
+#         raise HTTPException(status_code=400, detail="Already submitted this exam")
     
-    # Process image
-    image_bytes = await test_image.read()
-    image = Image.open(io.BytesIO(image_bytes))
-    image_np = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+#     # Process image
+#     image_bytes = await test_image.read()
+#     image = Image.open(io.BytesIO(image_bytes))
+#     image_np = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
     
-    # Grade exam
-    results = []
-    total_score = 0.0
-    max_score = exam_data['total_points']
+#     # Grade exam
+#     results = []
+#     total_score = 0.0
+#     max_score = exam_data['total_points']
     
-    mcq_questions = [q for q in exam_data['questions'] if q['type'] == 'mcq']
+#     mcq_questions = [q for q in exam_data['questions'] if q['type'] == 'mcq']
     
-    if mcq_questions and omr_detector:
-        try:
-            omr_config = exam_data.get('omr_config', {})
-            omr_results = omr_detector.detect_grid_answers(
-                image_np,
-                num_questions=len(mcq_questions),
-                options_per_question=omr_config.get('options_per_question', 4),
-                grid_config=omr_config.get('grid_region')
-            )
+#     if mcq_questions and omr_detector:
+#         try:
+#             omr_config = exam_data.get('omr_config', {})
+#             omr_results = omr_detector.detect_grid_answers(
+#                 image_np,
+#                 num_questions=len(mcq_questions),
+#                 options_per_question=omr_config.get('options_per_question', 4),
+#                 grid_config=omr_config.get('grid_region')
+#             )
             
-            for question in mcq_questions:
-                student_answer = omr_results.get(question['question_id'], 'BLANK')
-                is_correct = student_answer == question['correct_answer']
-                score = question['points'] if is_correct else 0.0
+#             for question in mcq_questions:
+#                 student_answer = omr_results.get(question['question_id'], 'BLANK')
+#                 is_correct = student_answer == question['correct_answer']
+#                 score = question['points'] if is_correct else 0.0
                 
-                results.append({
-                    'question_id': question['question_id'],
-                    'type': 'mcq',
-                    'student_answer': student_answer,
-                    'correct_answer': question['correct_answer'],
-                    'score': score,
-                    'max_points': question['points']
-                })
+#                 results.append({
+#                     'question_id': question['question_id'],
+#                     'type': 'mcq',
+#                     'student_answer': student_answer,
+#                     'correct_answer': question['correct_answer'],
+#                     'score': score,
+#                     'max_points': question['points']
+#                 })
                 
-                total_score += score
+#                 total_score += score
         
-        except Exception as e:
-            print(f"OMR error: {e}")
+#         except Exception as e:
+#             print(f"OMR error: {e}")
     
-    # Save submission
-    submission_data = {
-        'exam_id': exam_id,
-        'student_id': user['uid'],
-        'student_email': user['email'],
-        'submitted_at': datetime.utcnow().isoformat(),
-        'total_score': total_score,
-        'max_score': max_score,
-        'percentage': (total_score / max_score * 100) if max_score > 0 else 0,
-        'results': results
-    }
+#     # Save submission
+#     submission_data = {
+#         'exam_id': exam_id,
+#         'student_id': user['uid'],
+#         'student_email': user['email'],
+#         'submitted_at': datetime.utcnow().isoformat(),
+#         'total_score': total_score,
+#         'max_score': max_score,
+#         'percentage': (total_score / max_score * 100) if max_score > 0 else 0,
+#         'results': results
+#     }
     
-    submission_ref = db.collection('submissions').document()
-    submission_ref.set(submission_data)
+#     submission_ref = db.collection('submissions').document()
+#     submission_ref.set(submission_data)
     
-    return {
-        "submission_id": submission_ref.id,
-        "total_score": total_score,
-        "max_score": max_score,
-        "percentage": submission_data['percentage'],
-        "results": results
-    }
+#     return {
+#         "submission_id": submission_ref.id,
+#         "total_score": total_score,
+#         "max_score": max_score,
+#         "percentage": submission_data['percentage'],
+#         "results": results
+#     }
 
 @app.get("/api/exams/my-submissions")
 async def get_my_submissions(user: dict = Depends(require_student)):
@@ -387,7 +398,66 @@ async def set_user_role(email: str, role: str, user: dict = Depends(get_current_
     db.collection('users').document(user_doc.id).update({'role': role})
     
     return {"message": f"User role updated to {role}"}
+
+
+UPLOAD_DIR = "uploads"
+PROCESSED_DIR = "processed"
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+@app.post("/api/validate-paper")
+async def validate_paper(file: UploadFile = File(...)):
+    # Save uploaded file
+    file_ext = os.path.splitext(file.filename)[1]
+    unique_name = f"{uuid.uuid4()}{file_ext}"
+    input_path = os.path.join(UPLOAD_DIR, unique_name)
     
+    with open(input_path, "wb") as f:
+        f.write(await file.read())
+    
+    # Output path
+    output_path = os.path.join(PROCESSED_DIR, unique_name)
+    
+    # Process image
+    result = process_submission_image(input_path, output_path)
+    
+    if result["success"]:
+        return JSONResponse({
+            "success": True,
+            "metadata": result,
+            "processed_image": output_path
+        })
+    else:
+        return JSONResponse({
+            "success": False,
+            "error": result.get("error", "Unknown error")
+        }, status_code=400)
+
+@app.patch("/api/exams/{exam_code}/regions")
+async def save_answer_regions(
+    exam_code: str,
+    regions_data: dict,
+    user: dict = Depends(require_teacher)
+):
+    db = get_db()
+    exams = db.collection('exams').where('exam_code', '==', exam_code).limit(1).stream()
+    exam_doc = None
+    for e in exams:
+        exam_doc = e
+        break
+    
+    if not exam_doc:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    
+    exam_data = exam_doc.to_dict()
+    if exam_data['teacher_id'] != user['uid']:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    exam_doc.reference.update({'omr_config': regions_data})
+    return {"success": True}
+app.include_router(submission_routes.router, tags=["submissions"])
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

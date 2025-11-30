@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { auth } from '@/lib/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { BookOpen, LogOut, Plus, Eye } from 'lucide-react';
+import { MapPin,BookOpen, LogOut, Plus, Eye } from 'lucide-react';
 
 export default function TeacherDashboard() {
   const [user, setUser] = useState(null);
@@ -93,45 +93,48 @@ export default function TeacherDashboard() {
         </div>
 
         <div className="grid gap-4">
-          {exams.length === 0 ? (
-            <div className="bg-white rounded-lg shadow p-12 text-center">
-              <BookOpen className="w-16 h-16 mx-auto text-gray-400 mb-4" />
-              <h3 className="text-xl font-semibold text-gray-700 mb-2">
-                No exams yet
-              </h3>
-              <p className="text-gray-500 mb-4">
-                Create your first exam to get started
-              </p>
-              <button
-                onClick={() => router.push('/teacher/create-exam')}
-                className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
-              >
-                Create Exam
-              </button>
-            </div>
-          ) : (
-            exams.map((exam) => (
-              <div key={exam.exam_id} className="bg-white rounded-lg shadow p-6">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-xl font-bold">{exam.title}</h3>
-                    <p className="text-gray-600">{exam.description}</p>
-                    <div className="mt-2 flex gap-4 text-sm text-gray-500">
-                      <span>Code: <strong>{exam.exam_code}</strong></span>
-                      <span>{exam.questions?.length || 0} questions</span>
-                    </div>
+          {exams.map((exam) => (
+            <div key={exam.exam_id} className="bg-white rounded-lg shadow p-6">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h2 className="text-xl font-bold">{exam.title}</h2>
+                  <p className="text-gray-600">{exam.description}</p>
+                  <div className="flex gap-4 mt-2 text-sm">
+                    <span>Code: <strong>{exam.exam_code}</strong></span>
+                    <span>Questions: {exam.questions?.length || 0}</span>
+                    <span>Points: {exam.total_points}</span>
                   </div>
-                  <button 
-                    onClick={()=> router.push(`/teacher/exam/${exam.exam_id}/submissions`)}
+                  {exam.omr_config?.regions && (
+                    <span className="inline-block mt-2 px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
+                      ✓ Regions Marked
+                    </span>
+                  )}
+                </div>
+                
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => router.push(`/teacher/tool?exam_code=${exam.exam_code}`)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg ${
+                      exam.omr_config?.regions 
+                        ? 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                        : 'bg-orange-500 text-white hover:bg-orange-600'
+                    }`}
+                  >
+                    <MapPin className="w-4 h-4" />
+                    {exam.omr_config?.regions ? 'Edit Regions' : 'Mark Regions'}
+                  </button>
+                  
+                  <button
+                    onClick={() => router.push(`/teacher/exam/${exam.exam_code}/submissions`)}
                     className="flex items-center gap-2 px-4 py-2 border rounded-lg hover:bg-gray-50"
                   >
                     <Eye className="w-4 h-4" />
-                    View
+                    View Submissions
                   </button>
                 </div>
               </div>
-            ))
-          )}
+            </div>
+          ))}
         </div>
       </div>
     </div>

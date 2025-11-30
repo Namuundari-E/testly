@@ -3,12 +3,12 @@
 import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { auth } from '@/lib/firebase';
-import { FileText, CheckCircle, Clock, Eye, Zap, Download, ArrowLeft } from 'lucide-react';
+import { FileText, CheckCircle, Clock, Eye, Zap, Download, ArrowLeft, Loader2 } from 'lucide-react';
 
 export default function ExamSubmissionsPage() {
   const router = useRouter();
   const params = useParams();
-  const examId = params.id;
+  const examCode = params.id; // This is actually exam_code from URL
 
   const [exam, setExam] = useState(null);
   const [submissions, setSubmissions] = useState([]);
@@ -28,26 +28,42 @@ export default function ExamSubmissionsPage() {
 
       // Load exam details
       const examResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/exams/${examId}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/api/exams/${examCode}`,
         {
           headers: { 'Authorization': `Bearer ${token}` }
         }
       );
+      
+      if (!examResponse.ok) {
+        throw new Error('Failed to load exam');
+      }
+      
       const examData = await examResponse.json();
       setExam(examData);
 
       // Load submissions
-      console.log(examId);
-      console.log(token);
       const submissionsResponse = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/exams/${examId}/submissions`,
+        `${process.env.NEXT_PUBLIC_API_URL}/api/exams/${examCode}/submissions`,
         {
           headers: { 'Authorization': `Bearer ${token}` }
         }
       );
+      console.log(token)
+      if (!submissionsResponse.ok) {
+        throw new Error('Failed to load submissions');
+      }
+      
       const submissionsData = await submissionsResponse.json();
-      setSubmissions(Array.isArray(submissionsData) ? submissionsData : []);
+      console.log('Submissions:', submissionsData);
+      
+      // Handle both array and object responses
+      const submissionsList = Array.isArray(submissionsData) 
+        ? submissionsData 
+        : submissionsData.submissions || [];
+      
+      setSubmissions(submissionsList);
     } catch (error) {
+      console.error('Error:', error);
       alert('Error loading submissions: ' + error.message);
     } finally {
       setLoading(false);
@@ -55,33 +71,50 @@ export default function ExamSubmissionsPage() {
   };
 
   const handleAutoGradeAll = async () => {
-    if (!confirm('Auto-grade all pending submissions?')) return;
+    const pendingSubmissions = submissions.filter(s => s.status === 'pending');
+    
+    if (pendingSubmissions.length === 0) {
+      alert('No pending submissions to grade');
+      return;
+    }
+    
+    if (!confirm(`Auto-grade ${pendingSubmissions.length} pending submissions?`)) return;
 
     setGrading(true);
     try {
       const user = auth.currentUser;
       const token = await user.getIdToken();
-
-      const pendingSubmissions = submissions?.filter(s => s.status === 'pending') || 0;
       
+      let successCount = 0;
+      let errorCount = 0;
+
       for (const submission of pendingSubmissions) {
-        await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/exams/check_test`,
-          {
-            method: 'POST',
-            headers: { 
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ 
-              submission_id: submission.id,
-              exam_id: examId 
-            })
+        try {
+          const formData = new FormData();
+          formData.append('submission_id', submission.id);
+          
+          const response = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/api/exams/grade-submission`,
+            {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${token}` },
+              body: formData
+            }
+          );
+          
+          if (response.ok) {
+            successCount++;
+          } else {
+            errorCount++;
+            console.error(`Failed to grade submission ${submission.id}`);
           }
-        );
+        } catch (error) {
+          errorCount++;
+          console.error(`Error grading submission ${submission.id}:`, error);
+        }
       }
 
-      alert('All submissions graded successfully!');
+      alert(`Grading complete!\nSuccess: ${successCount}\nErrors: ${errorCount}`);
       loadExamAndSubmissions();
     } catch (error) {
       alert('Error grading submissions: ' + error.message);
@@ -111,20 +144,23 @@ export default function ExamSubmissionsPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <Loader2 className="w-12 h-12 animate-spin text-indigo-600 mx-auto mb-4" />
           <p className="text-gray-600">Loading submissions...</p>
         </div>
       </div>
     );
   }
 
-  const pendingCount = submissions?.filter(s => s.status === 'pending').length || 0;
-  const gradedCount = submissions?.filter(s => s.status === 'graded').length || 0;
+  const pendingCount = submissions.filter(s => s.status === 'pending').length;
+  const gradedCount = submissions.filter(s => s.status === 'graded').length;
+  const averageScore = gradedCount > 0
+    ? submissions.filter(s => s.status === 'graded')
+        .reduce((sum, s) => sum + (s.score || 0), 0) / gradedCount
+    : 0;
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="container mx-auto max-w-6xl">
-        {/* Header */}
         <button
           onClick={() => router.push('/teacher')}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-800 mb-6"
@@ -141,7 +177,7 @@ export default function ExamSubmissionsPage() {
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-600">Exam Code</p>
-              <p className="text-2xl font-bold text-indigo-600">{exam?.exam_code}</p>
+              <p className="text-2xl font-bold text-indigo-600">{examCode}</p>
             </div>
           </div>
 
@@ -162,10 +198,7 @@ export default function ExamSubmissionsPage() {
             <div className="bg-indigo-50 rounded-lg p-4">
               <p className="text-sm text-gray-600">Average Score</p>
               <p className="text-3xl font-bold text-indigo-600">
-                {gradedCount > 0 
-                  ? (submissions?.filter(s => s.status === 'graded') || 0
-                      .reduce((sum, s) => sum + (s.score || 0), 0) / gradedCount).toFixed(1)
-                  : '-'}
+                {gradedCount > 0 ? averageScore.toFixed(1) : '-'}
               </p>
             </div>
           </div>
@@ -175,13 +208,14 @@ export default function ExamSubmissionsPage() {
             <button
               onClick={handleAutoGradeAll}
               disabled={pendingCount === 0 || grading}
-              className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 disabled:bg-gray-400"
+              className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              <Zap className="w-5 h-5" />
+              {grading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
               {grading ? 'Grading...' : `Auto-Grade All (${pendingCount})`}
             </button>
             <button
               className="flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-700"
+              onClick={() => alert('Export feature coming soon!')}
             >
               <Download className="w-5 h-5" />
               Export Results
@@ -197,6 +231,7 @@ export default function ExamSubmissionsPage() {
             <div className="text-center py-12 text-gray-500">
               <FileText className="w-16 h-16 mx-auto mb-4 opacity-50" />
               <p className="text-lg">No submissions yet</p>
+              <p className="text-sm mt-2">Students will appear here after they submit their exams</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -208,7 +243,7 @@ export default function ExamSubmissionsPage() {
                   <div className="flex items-center gap-4 flex-1">
                     <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center">
                       <span className="text-lg font-bold text-indigo-600">
-                        {submission.student_name?.charAt(0) || 'S'}
+                        {submission.student_name?.charAt(0) || submission.student_email?.charAt(0) || 'S'}
                       </span>
                     </div>
                     <div className="flex-1">
@@ -223,10 +258,10 @@ export default function ExamSubmissionsPage() {
                       {getStatusIcon(submission.status)}
                       {submission.status.charAt(0).toUpperCase() + submission.status.slice(1)}
                     </div>
-                    {submission.status === 'graded' && (
+                    {submission.status === 'graded' && submission.score !== null && (
                       <div className="text-right">
                         <p className="text-2xl font-bold text-gray-800">
-                          {submission.score?.toFixed(1) || 0}
+                          {submission.score.toFixed(1)}
                         </p>
                         <p className="text-sm text-gray-500">
                           / {exam?.total_points}

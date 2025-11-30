@@ -71,6 +71,14 @@ export default function StudentDashboard() {
               <p className="text-sm text-gray-600">{user?.email}</p>
             </div>
           </div>
+          <div className="flex gap-3">
+          <button
+            onClick={router.push.bind(null, '/student/results')}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg"
+          >
+            <LogOut className="w-4 h-4" />
+            View Results
+          </button>
           <button
             onClick={handleSignOut}
             className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
@@ -78,6 +86,7 @@ export default function StudentDashboard() {
             <LogOut className="w-4 h-4" />
             Sign Out
           </button>
+          </div>
         </div>
       </div>
 

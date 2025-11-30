@@ -1,5 +1,8 @@
+'use client'
 import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Save, Eye, Trash2 } from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { auth } from '@/lib/firebase';
 
 export default function RegionMarkerTool() {
   const [image, setImage] = useState(null);
@@ -10,6 +13,10 @@ export default function RegionMarkerTool() {
   const [mcqRegionMarked, setMcqRegionMarked] = useState(false);
   const canvasRef = useRef(null);
   const imageRef = useRef(null);
+
+  const SearchParams = useSearchParams();
+  const router = useRouter();
+  const examCode = SearchParams.get('exam_code');
 
   useEffect(() => {
     if (image && canvasRef.current) {
@@ -152,7 +159,7 @@ export default function RegionMarkerTool() {
     setRegions(regions.filter((_, i) => i !== index));
   };
 
-  const saveRegions = () => {
+  const saveRegions = async () => {
     if (regions.length === 0) {
       alert('Please mark at least one region');
       return;
@@ -177,7 +184,32 @@ export default function RegionMarkerTool() {
     };
 
     console.log('Region data to save:', JSON.stringify(regionData, null, 2));
-    alert('Regions ready to save! Check console for JSON data.\n\nThis will be saved in exam.omr_config');
+    try {
+      const user = auth.currentUser;
+      if (!user) throw new Error('Not authenticated');
+      
+      const token = await user.getIdToken();
+      
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/exams/${examCode}/regions`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(regionData)
+        }
+      );
+
+      if (!response.ok) throw new Error('Failed to save regions');
+
+      alert('Regions saved successfully!');
+      router.push('/teacher'); // Go back to dashboard
+      
+    } catch (error) {
+      alert('Error saving regions: ' + error.message);
+    }
   };
 
   const writtenCount = regions.filter(r => r.type === 'written').length;

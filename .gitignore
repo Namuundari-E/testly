@@ -3,3 +3,5 @@ frontend/dist/
 frontend/.env
 backend/firebase-credentials.json
 frontend/firebase.js
+backend/.env
+.env

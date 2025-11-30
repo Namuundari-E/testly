@@ -1,0 +1,13 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\backend",
+    "\\test-checker-frontend",
+    "\\test-checker-frontend\\src",
+    "\\test-checker-frontend\\src\\app",
+    "\\test-checker-frontend\\src\\app\\teacher",
+    "\\test-checker-frontend\\src\\app\\teacher\\create-exam"
+  ],
+  "SelectedNode": "\\test-checker-frontend\\src\\app\\teacher\\create-exam\\page.js",
+  "PreviewInSolutionExplorer": false
+}

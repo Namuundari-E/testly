@@ -18,7 +18,7 @@ export default function CreateExamPage() {
         question_id: '1',
         question_text: '',
         type: 'mcq',
-        options: ['A', 'B', 'C'],
+        options: ['A', 'B', 'C','D','E'],
         correct_answer: 'A',
         points: 1
       }
@@ -88,7 +88,7 @@ export default function CreateExamPage() {
       setExamCode(data.exam_code);
       
       setTimeout(() => {
-        router.push('/teacher');
+        router.push(`/teacher/tool?exam_code=${data.exam_code}`);
       }, 3000);
     } catch (error) {
       alert('Error creating exam: ' + error.message);

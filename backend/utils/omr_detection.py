@@ -8,7 +8,7 @@ class OMRDetector:
     on multiple-choice test sheets
     """
     
-    def __init__(self, bubble_threshold=0.7, min_bubble_area=100):
+    def __init__(self, bubble_threshold=0.7, min_bubble_area=50):
         """
         Args:
             bubble_threshold: Ratio of filled pixels to consider bubble as marked (0-1)
