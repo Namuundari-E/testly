@@ -5,3 +5,5 @@ backend/firebase-credentials.json
 frontend/firebase.js
 backend/.env
 .env
+backend/debug_crops/
+backend/uploads/

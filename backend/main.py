@@ -21,7 +21,7 @@ from check_test import process_omr, process_ocr, compare_answers_with_llms , che
 from check_test import TestResult, ExamCreate, ExamUpdate
 from routes import submission_routes
 app = FastAPI(title="Document OCR Service")
-
+from utils.ocr_detection import initialize_ocr_model, perform_ocr_advanced, perform_ocr_simple
 #Cors middleware for frontend access
 app.add_middleware(
     CORSMiddleware,
@@ -39,13 +39,15 @@ omr_detector = None
 @app.on_event("startup")
 async def load_models():
     global ocr_processor, ocr_model, omr_detector
+    
     ocr_processor = TrOCRProcessor.from_pretrained("kazars24/trocr-base-handwritten-ru")
     ocr_model = VisionEncoderDecoderModel.from_pretrained("kazars24/trocr-base-handwritten-ru")
     
-    ocr_model.to("cuda" if torch.cuda.is_available() else "cpu")
-    
+    device_name = "cuda" if torch.cuda.is_available() else "cpu"
+    ocr_model.to(device_name)
     ocr_model.eval()
-    
+
+    initialize_ocr_model(ocr_processor, ocr_model, device_name)
     #omr
     print("Loading OMR Detector...")
     omr_detector = OMRDetector(bubble_threshold=0.70, min_bubble_area=30)

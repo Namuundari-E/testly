@@ -1,14 +1,33 @@
+# Web Framework
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
-torch==2.4.0 
+
+# Deep Learning
+torch==2.4.0
 torchvision==0.19.0
+
+# Transformers & NLP
+transformers>=4.46.0
+tokenizers==0.20.1
+sentencepiece>=0.1.99
+
+# Image Processing
 Pillow==10.1.0
 opencv-python-headless==4.8.1.78
+
+# Scientific Computing
 numpy==1.26.0
+scipy>=1.10.0
+
+# Data Validation
 pydantic==2.5.0
-transformers>=4.46.0
-tokenizers>=0.20.0
+
+# Hugging Face
 huggingface_hub>=0.25.0
+
+# Cloud Services
 firebase-admin==6.2.0
+
+# OpenAI
 openai==0.28.1

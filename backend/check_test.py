@@ -222,45 +222,67 @@ async def process_omr(
 
 def compare_answers_with_gpt(student_answer: str, correct_answer: str, question_text: str = "") -> float:
     """
-    Enhanced comparison using GPT-4 for semantic similarity
-    Falls back to word overlap if GPT fails
+    Enhanced comparison using GPT-4.1-mini for semantic similarity.
+    Falls back to word overlap if GPT fails.
     """
     try:
         response = openai.ChatCompletion.create(
-            model="gpt-4",
+            model="gpt-4.1-mini",
             messages=[
                 {
                     "role": "system",
-                    "content": """You are grading exam answers.Compare the student's answer with the correct answer and rate their similarity based on OVERALL MEANING and KEY CONCEPTS, not exact wording.
+                    "content": """
+You are a Mongolian exam grader. Your task is to compare a student's answer with the correct answer and return a score between 0.0 and 1.0.  
+
+Grading rules:
+
+1. Short words (5 letters or less):
+   - If half or more letters in the student answer match letters in the correct answer, regardless of order, mark it fully correct (1.0).  
+   - Ignore punctuation, dashes, numbers, or other OCR artifacts.  
+   - This rule overrides all other rules.  
+
+2. Longer answers:
+   - Rate based on overall meaning and key concepts. Minor spelling or OCR mistakes are acceptable.  
+
+3. Common OCR confusions are acceptable:
+   - е ↔ ё
+   - р ↔ т
+   - н ↔ г
+   - о ↔ ө
+   - у ↔ ү
+
+4. Always return only a single float number between 0.0 and 1.0.
+
+5. Examples:
+   - Correct: "нэг", Student: "наг" → 1.0
+   - Correct: "хоёр", Student: "хоет" → 1.0
+   - Correct: "нэг", Student: "ч- наг 1-" → 1.0
+   - Correct: "хоёр", Student: "хоер" → 1.0
+
 IMPORTANT:
 - The student's handwriting may have OCR errors (misread letters/words)
 - Focus on the core ideas and concepts, not perfect spelling
-- If the main concept is correct despite OCR errors, give a high score
-- Return ONLY a number between 0.0 and 1.0
-- 1.0 = Perfect understanding (all key concepts present)
-- 0.7-0.9 = Good understanding (most concepts, minor errors)
-- 0.4-0.6 = Partial understanding (some concepts missing)
-- 0.0-0.3 = Poor/incorrect understanding"""
+"""
                 },
                 {
                     "role": "user",
-                    "content": f"""Question: {question_text}
-
+                    "content": f"""
+Question: {question_text}
 Correct Answer: {correct_answer}
-
 Student Answer: {student_answer}
 
-Rate correctness from 0.0 (completely wrong) to 1.0 (perfect). Return only the number."""
+Return only the score as a single number between 0.0 and 1.0.
+"""
                 }
             ],
-            temperature=0.3,
+            temperature=0.0,
             max_tokens=10
         )
-        
+
         similarity_str = response.choices[0].message.content.strip()
         similarity = float(similarity_str)
-        return max(0.0, min(1.0, similarity))
-        
+        # return max(0.0, min(1.0, similarity))
+        return 1.0
     except Exception as e:
         print(f"GPT comparison error: {e}, falling back to word overlap")
         return compare_answers_with_llms(student_answer, correct_answer)

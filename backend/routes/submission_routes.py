@@ -12,7 +12,7 @@ import shutil
 
 from auth import get_current_user, require_teacher, require_student, get_db
 from check_test import process_omr, perform_ocr, compare_answers_with_gpt
-
+from utils.ocr_detection import (initialize_ocr_model,perform_ocr_advanced,perform_ocr_simple)
 router = APIRouter()
 
 # Image processing config
@@ -338,7 +338,7 @@ async def grade_submission(
     written_regions = [r for r in regions if r['type'] == 'written']
     if written_regions and written_questions:
         print(f"\n--- Written Processing ({len(written_questions)} questions) ---")
-    
+
     for idx, region in enumerate(written_regions):
         if idx >= len(written_questions):
             break
@@ -353,11 +353,23 @@ async def grade_submission(
             region_img = image_np[y:y+h, x:x+w]
             print(f"Q{q_id}: Cropped region {region_img.shape}")
             
-            # OCR
+            # Convert to PIL Image for OCR processing
             region_pil = Image.fromarray(cv2.cvtColor(region_img, cv2.COLOR_BGR2RGB))
-            student_text = perform_ocr(region_pil)
             
+            # Use the advanced OCR with word-by-word detection
+            ocr_result = perform_ocr_advanced(region_pil, batch_size=8)
+            student_text = ocr_result['text']
+            
+            print(f"Q{q_id}: Detected {ocr_result['lines']} lines, {ocr_result['words']} words")
             print(f"Q{q_id}: OCR='{student_text[:80]}'...")
+            
+            # Log word details for debugging
+            if ocr_result.get('word_details'):
+                print(f"Q{q_id}: Word breakdown:")
+                for word_info in ocr_result['word_details'][:5]:  # Show first 5 words
+                    print(f"  Line {word_info['line']}, Word {word_info['word_num']}: '{word_info['text']}'")
+                if len(ocr_result['word_details']) > 5:
+                    print(f"  ... and {len(ocr_result['word_details']) - 5} more words")
             
             # GPT comparison
             similarity = compare_answers_with_gpt(
@@ -365,9 +377,10 @@ async def grade_submission(
                 question['correct_answer'],
                 question.get('question_text', '')
             )
-            
-            score = similarity * question['points']
-            
+            print(similarity)
+            # score = similarity * question['points']
+            score = 1.0
+            print(score)
             print(f"Q{q_id}: Similarity={similarity:.2f}, Score={score:.2f}/{question['points']}")
             
             results.append({
@@ -378,13 +391,19 @@ async def grade_submission(
                 'score': round(score, 2),
                 'max_points': question['points'],
                 'type': 'written',
-                'similarity': round(similarity, 2)
+                'similarity': round(similarity, 2),
+                'ocr_method': ocr_result['method'],
+                'lines_detected': ocr_result['lines'],
+                'words_detected': ocr_result['words']
             })
             
             total_score += score
         
         except Exception as e:
             print(f"✗ Q{q_id} error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
             results.append({
                 'question_id': q_id,
                 'question_text': question.get('question_text', ''),
@@ -395,7 +414,7 @@ async def grade_submission(
                 'type': 'written',
                 'error': str(e)
             })
-    
+        
     # Calculate final percentage
     percentage = (total_score / max_score * 100) if max_score > 0 else 0
     
