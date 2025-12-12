@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 import openai
 import os
+from openai import OpenAI
 
 # Your existing models - KEEP AS IS
 class TestResult(BaseModel):
@@ -57,8 +58,6 @@ ocr_processor = None
 ocr_model = None
 omr_detector = None
 
-# Configure OpenAI (add your API key)
-openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 async def check_test(
@@ -219,6 +218,7 @@ async def process_omr(
         "bubbles": bubbles[:10]
     }
 
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def compare_answers_with_gpt(student_answer: str, correct_answer: str, question_text: str = "") -> float:
     """
@@ -226,7 +226,7 @@ def compare_answers_with_gpt(student_answer: str, correct_answer: str, question_
     Falls back to word overlap if GPT fails.
     """
     try:
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
                 {
@@ -281,8 +281,8 @@ Return only the score as a single number between 0.0 and 1.0.
 
         similarity_str = response.choices[0].message.content.strip()
         similarity = float(similarity_str)
-        # return max(0.0, min(1.0, similarity))
-        return 1.0
+        return max(0.0, min(1.0, similarity))
+        # return 1.0
     except Exception as e:
         print(f"GPT comparison error: {e}, falling back to word overlap")
         return compare_answers_with_llms(student_answer, correct_answer)

@@ -13,7 +13,9 @@ import random
 import string
 from datetime import datetime
 import uuid
-
+import io
+import cv2
+import numpy as np
 #import ur omr detection
 from auth import get_current_user, require_teacher, require_student, get_db, initialize_firebase
 from utils.omr_detection import OMRDetector
@@ -22,6 +24,8 @@ from check_test import TestResult, ExamCreate, ExamUpdate
 from routes import submission_routes
 app = FastAPI(title="Document OCR Service")
 from utils.ocr_detection import initialize_ocr_model, perform_ocr_advanced, perform_ocr_simple
+from utils.ocr_letter_recognition import LetterOCR
+from utils.box_detector import extract_letter_boxes
 #Cors middleware for frontend access
 app.add_middleware(
     CORSMiddleware,
@@ -35,6 +39,7 @@ app.add_middleware(
 ocr_processor = None
 ocr_model = None
 omr_detector = None
+ocr = LetterOCR()
 
 @app.on_event("startup")
 async def load_models():
@@ -56,7 +61,9 @@ async def load_models():
     check_test.ocr_processor = ocr_processor
     check_test.ocr_model = ocr_model
     check_test.omr_detector = omr_detector 
-    
+    import utils.ocr
+    utils.ocr.ocr_processor = ocr_processor
+    utils.ocr.ocr_model = ocr_model
 @app.get("/")
 async def root():
     return {"message": "Document OCR Service is running.", "status": "running"}
@@ -80,6 +87,44 @@ async def check_test(
 async def test_ocr(image: UploadFile = File(...)):
     result = await process_ocr(image)
     return {"result:": result}
+
+@app.post("/ocr/letters")
+async def ocr_letters(file: UploadFile = File(...)):
+    # Load image
+    contents = await file.read()
+    npimg = np.frombuffer(contents, np.uint8)
+    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+
+    # 1. extract boxes from the template
+    boxes = extract_letter_boxes(img)
+
+    # 2. OCR for each box
+    text = ocr.recognize_from_boxes(boxes)
+
+    return {
+        "success": True,
+        "extracted_text": text,
+        "character_count": len(text)
+    }
+@app.post("/ocr/advanced")
+async def ocr_advanced_endpoint(file: UploadFile = File(...)):
+    try:
+        img_bytes = await file.read()
+        image = Image.open(io.BytesIO(img_bytes))
+
+        result = perform_ocr_advanced(image)
+
+        return JSONResponse({
+            "status": "success",
+            "text": result["text"],
+            "lines": result["lines"],
+            "words": result["words"],
+            "method": result["method"],
+            "word_details": result["word_details"],
+        })
+
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 @app.post("/omr-test")
 async def test_omr(

@@ -31,3 +31,5 @@ firebase-admin==6.2.0
 
 # OpenAI
 openai==0.28.1
+
+paddleocr==2.7.0.3

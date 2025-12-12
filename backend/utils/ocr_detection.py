@@ -9,6 +9,7 @@ import torch
 from PIL import Image
 from typing import List, Tuple
 import logging
+import os
 from scipy.ndimage import gaussian_filter1d
 
 logger = logging.getLogger(__name__)
@@ -170,6 +171,8 @@ def perform_ocr_advanced(image: Image.Image, batch_size: int = 8) -> dict:
     Returns:
         dict with keys: text, lines, words, method, word_details
     """
+    word_save_dir = "backend_word_images"
+    os.makedirs(word_save_dir, exist_ok=True)
     img_array = np.array(image)
     
     logger.info(f"Processing image of size: {img_array.shape}")
@@ -211,8 +214,16 @@ def perform_ocr_advanced(image: Image.Image, batch_size: int = 8) -> dict:
             batch_words = words[i:i + batch_size]
             
             # Resize and prepare images
-            batch_images = [resize_for_model(word[2]) for word in batch_words]
-            
+            batch_images = []
+            for word_idx, word in enumerate(batch_words):
+                word_img = resize_for_model(word[2])
+                
+                # Save original cropped word image
+                word_filename = f"line{line_idx+1}_word{i+word_idx+1}.png"
+                word_path = os.path.join(word_save_dir, word_filename)
+                cv2.imwrite(word_path, word[2])
+                
+                batch_images.append(word_img)
             # Perform OCR
             batch_texts = perform_ocr_batch(batch_images)
             
