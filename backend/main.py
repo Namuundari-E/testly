@@ -30,7 +30,7 @@ from utils.box_detector import extract_letter_boxes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://unfumigated-melanie-circularly.ngrok-free.dev",
+        "https://testly-six.vercel.app",
         "http://localhost:3000"
     ],
     allow_credentials=True,
