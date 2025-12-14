@@ -31,11 +31,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://testly-six.vercel.app",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "https://*.ngrok-free.app",  # Add ngrok domains
+        "https://*.ngrok.io"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]  # Add this line
 )
 
 #Global model variable
@@ -188,7 +191,9 @@ async def get_my_exams(user: dict = Depends(require_teacher)):
         exam_list.append(exam_data)
     
     return {"exams": exam_list}
-
+@app.options("/api/exams/my-exams")
+async def options_my_exams():
+    return {}
 @app.get("/api/exams/{exam_id}")
 async def get_exam(exam_id: str, user: dict = Depends(require_teacher)):
     """Get exam details"""
