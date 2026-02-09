@@ -12,7 +12,8 @@ docker build -t test-checker-backend .
 docker run -p 8000:8000 test-checker-backend(docker start -a test-checker-backend)  
   
 running frontend:  
-cd frontend   
 npm start  
+
+
 
 
