@@ -13,6 +13,7 @@ docker run -p 8000:8000 test-checker-backend(docker start -a test-checker-backen
   
 running frontend:  
 npm start  
+ksaubcfakc jac     
 
 
 
